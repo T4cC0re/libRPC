@@ -1,0 +1,21 @@
+{
+  "name": "libRPC",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {},
+  "scripts": {
+    "postinstall": "tsc -p ."
+  },
+  "devDependencies": {
+    "typescript": "^2.5",
+    "@types/node": "^8.0.28"
+  },
+  "license": "Apache-2.0",
+  "main": "./lib/libRPC.js",
+  "typings": "./tsd/libRPC.d.ts",
+  "files": [
+    "src/libRPC.ts",
+    "src/UUID.ts",
+    "tsconfig.json"
+  ]
+}
