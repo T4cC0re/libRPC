@@ -251,6 +251,9 @@ export class ClientRPC extends RPC {
 }
 
 export class ChildRPC extends RPC {
+    constructor() {
+        super();
+    }
 
     public async callOnMaster<T>(func: string, ...args: any[]): Promise<T> {
         return this.remoteCall(process, func, ...args) as any as T;
