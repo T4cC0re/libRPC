@@ -48,14 +48,14 @@ export abstract class RPC {
         ...args: any[]
     ): Promise<any> {
         return new Promise((resolve, reject) => {
-            var uuid = UUID.new();
+            let uuid = UUID.new();
             this.addCallback(uuid, resolve, reject);
             (target as Process).send(
                 {
-                    type: 'request',
-                    name: name,
-                    args: args,
-                    uuid: uuid
+                    jsonrpc: '2.0',
+                    method: name,
+                    params: args,
+                    id: uuid
                 }
             );
             uuid = null;
@@ -76,10 +76,10 @@ export abstract class RPC {
         reject: Function
     ) {
         try {
-            if (callState.isError) {
-                reject(Object.assign(new Error(), callState.data));
+            if (callState.error) {
+                reject(Object.assign(new Error(callState.error.message), callState.error.data || {}));
             } else {
-                resolve(callState.data);
+                resolve(callState.result);
             }
         } catch (e) {
             reject(e);
@@ -88,30 +88,31 @@ export abstract class RPC {
 
     protected async handleRPC(
         data: IRPC,
-        worker?: Worker|Process|ChildProcess
+        caller?: Worker|Process|ChildProcess
     ): Promise<void> {
         //TODO: Make this tidier
         if (typeof data !== 'object') {
+            console.error('data is not an object');
             return null;
+            // TODO: Send error
         }
-        var result: any;
-        var isError = false;
-        //We wanna debug, but don't wanna see shit scrolling by;
-        // if(!(data.name == 'getConfig')) {
-        //   console.log(`incoming ${data.type}: ${JSON.stringify(data)}`);
-        // }
-        switch (data.type) {
-            case 'request':
-                if (!this.functions[(data as IRPCRequest).name]) {
-                    result  = new Error(
-                        `Function '${(data as IRPCRequest).name}' is not registered on call target!`
-                    );
-                    isError = true;
-                    break;
-                }
+        if (data.jsonrpc !== '2.0') {
+            console.error('data.jsonrpc !== \'2.0\'');
+            return null;
+            // TODO: Send error
+        }
+        let result: any;
+        let isError = false;
+        if ((data as IRPCRequest).method != undefined && typeof (data as IRPCRequest).method === 'string') {
+            if (!this.functions[(data as IRPCRequest).method]) {
+                result  = new Error(
+                    `Function '${(data as IRPCRequest).method}' is not registered on call target!`
+                );
+                isError = true;
+            } else {
                 try {
-                    result = await this.functions[(data as IRPCRequest).name](
-                        ...(data as IRPCRequest).args
+                    result = await this.functions[(data as IRPCRequest).method](
+                        ...(data as IRPCRequest).params
                     );
                 } catch (err) {
                     result  = JSON.parse(
@@ -128,40 +129,35 @@ export abstract class RPC {
                     );
                     isError = true;
                 }
-                break;
-            case 'response':
-                try {
-                    await this.callbacks[data.uuid](data);
-                    delete this.callbacks[data.uuid];
-                } catch (e){
-                    //For some reason this happens, but has no negative effect...
+            }
+            if(!caller){
+                caller = process;
+            }
+            let response: IRPCResponse = {
+                id: data.id,
+                jsonrpc: '2.0',
+            };
+            if(isError) {
+                response.error = { code: 0,
+                    message: (result as Error).message,
+                    data: result
                 }
-                data = null;
-                return null;
-            default:
-                return null;
-        }
-        var responder: any;
-        if (isWorker) {
-            responder = process;
+            } else {
+                response.result = result || null
+            }
+            (caller as Process).send(
+                response
+            );
+            result    = null;
+            isError   = null;
         } else {
-            responder = worker;
+            try {
+                await this.callbacks[data.id](data);
+                delete this.callbacks[data.id];
+            } catch (e){
+                //For some reason this happens, but has no negative effect...
+            }
         }
-        if(!responder){
-            return null;
-        }
-        responder.send(
-            {
-                type   : 'response',
-                isError: isError,
-                data   : result,
-                name   : data.name,
-                uuid   : data.uuid
-            } as IRPCResponse
-        );
-        result    = null;
-        isError   = null;
-        responder = null;
         return null;
     }
 
@@ -185,7 +181,6 @@ export abstract class RPC {
             } else {
                 cluster.on('message',
                     (worker, message) => {
-                        // console.log('message:', message);
                         this.handleRPC(message, worker);
                     });
             }
@@ -330,19 +325,23 @@ declare global {
     }
 
     interface IRPC {
-        type: 'request'|'response'
-        uuid: string
-        name: string
+        jsonrpc: '2.0'
+        id: string
     }
 
     interface IRPCRequest extends IRPC {
-        type: 'request'
-        args?: any[]
+        method: string
+        params: any[]|any
     }
 
     interface IRPCResponse extends IRPC {
-        type: 'response'
-        isError?: boolean
+        error?: IRPCError
+        result?: any
+    }
+
+    interface IRPCError {
+        code: number
+        message: string
         data: any
     }
 }
