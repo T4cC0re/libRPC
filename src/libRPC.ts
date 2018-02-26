@@ -24,12 +24,14 @@ import {workers} from "cluster";
 import {ChildProcess} from "child_process";
 
 export abstract class RPC {
+    protected registered: boolean = false;
     protected functions: IFuncObj;
     protected callbacks: IFuncObj;
 
     constructor() {
         this.functions = {};
         this.callbacks = {};
+        this.registerProcessInternal();
     }
 
     public async callOnSelf<T>(func: string, ...args: any[]): Promise<T> {
@@ -163,7 +165,19 @@ export abstract class RPC {
         return null;
     }
 
+    /**
+     * @deprecated calling registerProcess is obsolete
+     * @returns {boolean}
+     */
     public registerProcess(): boolean {
+        console.error('calling xRPC::registerProcess is obsolete');
+        return true;
+    }
+
+    protected registerProcessInternal(): boolean {
+        if (this.registered) {
+            return true
+        }
         try {
             if (isWorker) {
                 process.on('message',
