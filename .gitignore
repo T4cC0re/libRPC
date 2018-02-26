@@ -2,3 +2,5 @@
 /node_modules/
 /tsd/
 /.idea/
+/demo/*.js
+/demo/*.js.map

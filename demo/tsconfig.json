@@ -1,0 +1,30 @@
+{
+  "compileOnSave"  : true,
+  "compilerOptions": {
+    "module"                        : "commonjs",
+    "target"                        : "es2017",
+    "noImplicitAny"                 : true,
+    "noImplicitReturns"             : true,
+    "sourceMap"                     : true,
+    "newLine"                       : "lf",
+    "removeComments"                : true,
+    "listFiles"                     : false,
+    "noLib"                         : false,
+    "strictNullChecks"              : false,
+    "alwaysStrict"                  : true,
+    "traceResolution"               : false,
+    "noUnusedLocals"                : true,
+    "noUnusedParameters"            : true,
+    "noFallthroughCasesInSwitch"    : false,
+    "allowUnusedLabels"             : true,
+    "suppressImplicitAnyIndexErrors": true,
+    "skipLibCheck"                  : true,
+    "types"                         : [ "node" ]
+  },
+  "exclude"        : [
+    "node_modules"
+  ],
+  "include"        : [
+    "master-worker-crosscalls.ts"
+  ]
+}
