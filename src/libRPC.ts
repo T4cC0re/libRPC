@@ -223,13 +223,27 @@ export class MasterRPC extends RPC {
         return this.remoteCall(client, func, ...args) as any as T;
     }
 
+    /**
+     * @deprecated please use callOnWorkers instead
+     * @param {string} func
+     * @param args
+     * @returns {Promise<T[]>}
+     */
     public async callOnClients<T>(
         func: string,
         ...args: any[]
     ): Promise<T[]> {
-        var result: T[] = [];
+        console.error('MasterRPC::callOnClients is deprecated; Please use MasterRPC::callOnWorkers instead');
+        return this.callOnWorkers<T>(func, ...args);
+    }
+
+    public async callOnWorkers<T>(
+        func: string,
+        ...args: any[]
+    ): Promise<T[]> {
+        let result: T[] = [];
         // TODO: Catch errors? If so how to signalize that?
-        for (var id in workers) {
+        for (let id in workers) {
             result.push(
                 await this.callOnClient(
                     workers[id],
