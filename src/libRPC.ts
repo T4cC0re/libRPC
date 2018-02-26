@@ -251,16 +251,26 @@ export class MasterRPC extends RPC {
     }
 }
 
-export class ClientRPC extends RPC {
+export class WorkerRPC extends RPC {
     constructor() {
         if (!isWorker) {
-            throw new Error('Cannot create ClientRPC on non-worker process!');
+            throw new Error('Cannot create WorkerRPC on non-worker process!');
         }
         super();
     }
 
     public async callOnMaster<T>(func: string, ...args: any[]): Promise<T> {
         return this.remoteCall(process, func, ...args) as any as T;
+    }
+}
+
+/**
+ * @deprecated Please use WorkerRPC instead!
+ */
+export class ClientRPC extends WorkerRPC {
+    constructor() {
+        console.error('MasterRPC::ClientRPC is deprecated; Please use MasterRPC::WorkerRPC instead');
+        super();
     }
 }
 
