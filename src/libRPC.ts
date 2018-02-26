@@ -255,7 +255,12 @@ export class MasterRPC extends RPC {
         return result;
     }
 
-    public installHandlerOn(child: Worker|ChildProcess): Worker|ChildProcess {
+    /**
+     * Note: Do not call on workers (forks of cluster) but do in child processes (regular forks)
+     * @param {"child_process".ChildProcess} child
+     * @returns {"child_process".ChildProcess}
+     */
+    public installHandlerOn(child: ChildProcess): ChildProcess {
         try {
             child.on('message', (data: IRPC) => this.handleRPC(data, child));
             return child;
