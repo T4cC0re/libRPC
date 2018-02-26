@@ -302,7 +302,19 @@ export class ChildRPC extends RPC {
         return this.remoteCall(process, func, ...args) as any as T;
     }
 
+    /**
+     * @deprecated calling registerProcess is obsolete
+     * @returns {boolean}
+     */
     public registerProcess(): boolean {
+        console.error('calling ChildRPC::registerProcess is obsolete');
+        return true;
+    }
+
+    protected registerProcessInternal(): boolean {
+        if (this.registered) {
+            return true
+        }
         try {
             process.on('message', (data: IRPC) => this.handleRPC(data, process));
             return true;
