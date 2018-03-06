@@ -42,6 +42,8 @@ export abstract class RPC {
         }
     }
 
+    public abstract async callOnMaster<T>(func: string, ...args: any[]): Promise<T>;
+
     public remoteCall(
         target: Worker|Process|ChildProcess,
         name: string,
@@ -208,6 +210,10 @@ export class MasterRPC extends RPC {
             throw new Error('Cannot create MasterRPC on non-master process!');
         }
         super();
+    }
+
+    public async callOnMaster<T>(func: string, ...args: any[]): Promise<T> {
+        return this.callOnSelf<T>(func, ...args);
     }
 
     public async callOnClient<T>(
