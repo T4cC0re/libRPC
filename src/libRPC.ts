@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Hendrik 'T4cC0re' Meyer
+ * Copyright 2016-2018 Hendrik 'T4cC0re' Meyer
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,12 +24,14 @@ import {workers} from "cluster";
 import {ChildProcess} from "child_process";
 
 export abstract class RPC {
+    protected registered: boolean = false;
     protected functions: IFuncObj;
     protected callbacks: IFuncObj;
 
     constructor() {
         this.functions = {};
         this.callbacks = {};
+        this.registerProcessInternal();
     }
 
     public async callOnSelf<T>(func: string, ...args: any[]): Promise<T> {
@@ -40,20 +42,22 @@ export abstract class RPC {
         }
     }
 
+    public abstract async callOnMaster<T>(func: string, ...args: any[]): Promise<T>;
+
     public remoteCall(
         target: Worker|Process|ChildProcess,
         name: string,
         ...args: any[]
     ): Promise<any> {
         return new Promise((resolve, reject) => {
-            var uuid = UUID.new();
+            let uuid = UUID.new();
             this.addCallback(uuid, resolve, reject);
             (target as Process).send(
                 {
-                    type: 'request',
-                    name: name,
-                    args: args,
-                    uuid: uuid
+                    jsonrpc: '2.0',
+                    method: name,
+                    params: args,
+                    id: uuid
                 }
             );
             uuid = null;
@@ -74,10 +78,10 @@ export abstract class RPC {
         reject: Function
     ) {
         try {
-            if (callState.isError) {
-                reject(Object.assign(new Error(), callState.data));
+            if (callState.error) {
+                reject(Object.assign(new Error(callState.error.message), callState.error.data || {}));
             } else {
-                resolve(callState.data);
+                resolve(callState.result);
             }
         } catch (e) {
             reject(e);
@@ -86,30 +90,31 @@ export abstract class RPC {
 
     protected async handleRPC(
         data: IRPC,
-        worker?: Worker|Process|ChildProcess
+        caller?: Worker|Process|ChildProcess
     ): Promise<void> {
         //TODO: Make this tidier
         if (typeof data !== 'object') {
+            console.error('data is not an object');
             return null;
+            // TODO: Send error
         }
-        var result: any;
-        var isError = false;
-        //We wanna debug, but don't wanna see shit scrolling by;
-        // if(!(data.name == 'getConfig')) {
-        //   console.log(`incoming ${data.type}: ${JSON.stringify(data)}`);
-        // }
-        switch (data.type) {
-            case 'request':
-                if (!this.functions[(data as IRPCRequest).name]) {
-                    result  = new Error(
-                        `Function '${(data as IRPCRequest).name}' is not registered on call target!`
-                    );
-                    isError = true;
-                    break;
-                }
+        if (data.jsonrpc !== '2.0') {
+            console.error('data.jsonrpc !== \'2.0\'');
+            return null;
+            // TODO: Send error
+        }
+        let result: any;
+        let isError = false;
+        if ((data as IRPCRequest).method != undefined && typeof (data as IRPCRequest).method === 'string') {
+            if (!this.functions[(data as IRPCRequest).method]) {
+                result  = new Error(
+                    `Function '${(data as IRPCRequest).method}' is not registered on call target!`
+                );
+                isError = true;
+            } else {
                 try {
-                    result = await this.functions[(data as IRPCRequest).name](
-                        ...(data as IRPCRequest).args
+                    result = await this.functions[(data as IRPCRequest).method](
+                        ...(data as IRPCRequest).params
                     );
                 } catch (err) {
                     result  = JSON.parse(
@@ -126,44 +131,51 @@ export abstract class RPC {
                     );
                     isError = true;
                 }
-                break;
-            case 'response':
-                try {
-                    await this.callbacks[data.uuid](data);
-                    delete this.callbacks[data.uuid];
-                } catch (e){
-                    //For some reason this happens, but has no negative effect...
+            }
+            if(!caller){
+                caller = process;
+            }
+            let response: IRPCResponse = {
+                id: data.id,
+                jsonrpc: '2.0',
+            };
+            if(isError) {
+                response.error = { code: 0,
+                    message: (result as Error).message,
+                    data: result
                 }
-                data = null;
-                return null;
-            default:
-                return null;
-        }
-        var responder: any;
-        if (isWorker) {
-            responder = process;
+            } else {
+                response.result = result || null
+            }
+            (caller as Process).send(
+                response
+            );
+            result    = null;
+            isError   = null;
         } else {
-            responder = worker;
+            try {
+                await this.callbacks[data.id](data);
+                delete this.callbacks[data.id];
+            } catch (e){
+                //For some reason this happens, but has no negative effect...
+            }
         }
-        if(!responder){
-            return null;
-        }
-        responder.send(
-            {
-                type   : 'response',
-                isError: isError,
-                data   : result,
-                name   : data.name,
-                uuid   : data.uuid
-            } as IRPCResponse
-        );
-        result    = null;
-        isError   = null;
-        responder = null;
         return null;
     }
 
+    /**
+     * @deprecated calling registerProcess is obsolete
+     * @returns {boolean}
+     */
     public registerProcess(): boolean {
+        console.error('calling xRPC::registerProcess is obsolete');
+        return true;
+    }
+
+    protected registerProcessInternal(): boolean {
+        if (this.registered) {
+            return true
+        }
         try {
             if (isWorker) {
                 process.on('message',
@@ -171,7 +183,6 @@ export abstract class RPC {
             } else {
                 cluster.on('message',
                     (worker, message) => {
-                        // console.log('message:', message);
                         this.handleRPC(message, worker);
                     });
             }
@@ -201,6 +212,10 @@ export class MasterRPC extends RPC {
         super();
     }
 
+    public async callOnMaster<T>(func: string, ...args: any[]): Promise<T> {
+        return this.callOnSelf<T>(func, ...args);
+    }
+
     public async callOnClient<T>(
         client: Worker,
         func: string,
@@ -209,13 +224,27 @@ export class MasterRPC extends RPC {
         return this.remoteCall(client, func, ...args) as any as T;
     }
 
+    /**
+     * @deprecated please use callOnWorkers instead
+     * @param {string} func
+     * @param args
+     * @returns {Promise<T[]>}
+     */
     public async callOnClients<T>(
         func: string,
         ...args: any[]
     ): Promise<T[]> {
-        var result: T[] = [];
+        console.error('MasterRPC::callOnClients is deprecated; Please use MasterRPC::callOnWorkers instead');
+        return this.callOnWorkers<T>(func, ...args);
+    }
+
+    public async callOnWorkers<T>(
+        func: string,
+        ...args: any[]
+    ): Promise<T[]> {
+        let result: T[] = [];
         // TODO: Catch errors? If so how to signalize that?
-        for (var id in workers) {
+        for (let id in workers) {
             result.push(
                 await this.callOnClient(
                     workers[id],
@@ -227,7 +256,12 @@ export class MasterRPC extends RPC {
         return result;
     }
 
-    public installHandlerOn(child: Worker|ChildProcess): Worker|ChildProcess {
+    /**
+     * Note: Do not call on workers (forks of cluster) but do in child processes (regular forks)
+     * @param {"child_process".ChildProcess} child
+     * @returns {"child_process".ChildProcess}
+     */
+    public installHandlerOn(child: ChildProcess): ChildProcess {
         try {
             child.on('message', (data: IRPC) => this.handleRPC(data, child));
             return child;
@@ -237,16 +271,26 @@ export class MasterRPC extends RPC {
     }
 }
 
-export class ClientRPC extends RPC {
+export class WorkerRPC extends RPC {
     constructor() {
         if (!isWorker) {
-            throw new Error('Cannot create ClientRPC on non-worker process!');
+            throw new Error('Cannot create WorkerRPC on non-worker process!');
         }
         super();
     }
 
     public async callOnMaster<T>(func: string, ...args: any[]): Promise<T> {
         return this.remoteCall(process, func, ...args) as any as T;
+    }
+}
+
+/**
+ * @deprecated Please use WorkerRPC instead!
+ */
+export class ClientRPC extends WorkerRPC {
+    constructor() {
+        console.error('MasterRPC::ClientRPC is deprecated; Please use MasterRPC::WorkerRPC instead');
+        super();
     }
 }
 
@@ -259,7 +303,19 @@ export class ChildRPC extends RPC {
         return this.remoteCall(process, func, ...args) as any as T;
     }
 
+    /**
+     * @deprecated calling registerProcess is obsolete
+     * @returns {boolean}
+     */
     public registerProcess(): boolean {
+        console.error('calling ChildRPC::registerProcess is obsolete');
+        return true;
+    }
+
+    protected registerProcessInternal(): boolean {
+        if (this.registered) {
+            return true
+        }
         try {
             process.on('message', (data: IRPC) => this.handleRPC(data, process));
             return true;
@@ -275,19 +331,23 @@ declare global {
     }
 
     interface IRPC {
-        type: 'request'|'response'
-        uuid: string
-        name: string
+        jsonrpc: '2.0'
+        id: string
     }
 
     interface IRPCRequest extends IRPC {
-        type: 'request'
-        args?: any[]
+        method: string
+        params: any[]|any
     }
 
     interface IRPCResponse extends IRPC {
-        type: 'response'
-        isError?: boolean
+        error?: IRPCError
+        result?: any
+    }
+
+    interface IRPCError {
+        code: number
+        message: string
         data: any
     }
 }
